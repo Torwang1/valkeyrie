@@ -163,6 +163,30 @@ func (s *Zookeeper) Watch(key string, stopCh <-chan struct{}, opts *store.ReadOp
 
 		var fireEvt = true
 		for {
+			// zookeeper 分为: data-watches 和 child-watches
+			// - setData() 触发 data-watches;
+			// - create() 触发 data-watches 和 父节点的 child-watches;
+			// - delete() 触发 data-watches 和 父节点的 child-watches;
+			//
+			// getW 设置了 data-watches, 事件列表:
+			// - EventNodeCreated: 不会收到. 节点不存在通过 err 返回.
+			// - EventNodeDeleted: 可以收到.
+			// - EventNodeDataChanged: 可以收到.
+			//
+			// 再次调用 getW 出现几种情况:
+			// - 网络问题等, 返回 err;
+			// - key 不存在, 返回 err;
+			// - key 存在;
+			//
+			// 再次调用 getW 前, znode 可能出现的操作序列:
+			// - change, change
+			// - change, delete ==> 委托上层业务处理;
+			// - change, delete, create ==> (同上)
+			// - delete, create ==> (同上)
+			// 考虑到: zk server 同步数据的延迟, getW 获取到哪个版本的数据是随机事件.
+			//
+			// 参考: Zookeeper Watches 章节
+			// 链接: https://zookeeper.apache.org/doc/r3.3.3/zookeeperProgrammers.html
 			resp, meta, eventCh, err := s.getW(key)
 			if err != nil {
 				return
